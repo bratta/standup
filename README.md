@@ -4,6 +4,8 @@ A simple ruby script that connects to your Notion databases to generate a daily 
 
 ![Example Standup](etc/example.png)
 
+I wrote this for me, for my development team. As such, it is highly opinionated and likely won't work for your own situation. You can use this for reference or as a starting point for your own daily standup script.
+
 ## Overview
 
 This is a program highly tailored to my development team's daily Slack standup messages. Since starting to use
