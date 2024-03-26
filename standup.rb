@@ -28,17 +28,18 @@ require 'notion-ruby-client'
 #   {{fortune}} - A random fortune from the above application (currently the "wisdom" file)
 # See the `template_variables` method for more
 
+# Daily Standup class
 class DailyStandup
   attr_accessor :records, :sotd_records, :sections, :categories, :template
 
   # Constructor
   def initialize
     @sections = {
-      previous: "Previous",
-      today: "Today",
-      blockers: "Blockers",
-      gratitude: "Gratitude/Joy/Others",
-      sotd: "Song of the Day"
+      previous: 'Previous',
+      today: 'Today',
+      blockers: 'Blockers',
+      gratitude: 'Gratitude/Joy/Others',
+      sotd: 'Song of the Day'
     }
     @records = fetch_database(ENV['STANDUP_DATABASE_ID'])
     @sotd_records = fetch_database(ENV['SOTD_DATABASE_ID'])
@@ -49,7 +50,7 @@ class DailyStandup
   def fetch_database(database_id)
     [].tap do |records|
       client = Notion::Client.new(token: ENV['NOTION_API_TOKEN'])
-      client.database_query(database_id: database_id) do |db|
+      client.database_query(database_id:) do |db|
         db.results.each do |row|
           records.push(row)
         end
@@ -58,15 +59,19 @@ class DailyStandup
   end
 
   # This builds up each section, based on section name and category.
-  # For example, `get_section_for_categories(:today, :Normal)`
+  # For example, `section_for_categories(:today, :Normal)`
   # Will load all the entries for the current day with the "Normal" category, using the proper
   # header text for the section.
-  def get_section_for_categories(section, category)
+  def section_for_categories(section, category)
     result = "*#{@sections[section]}:*\n"
     items = []
-    @records.select {|r| r.dig(:properties, :Category, :select, :name)&.to_sym == category }
-      .sort { |a, b| a.created_time && b.created_time && Date.parse(a.created_time) <=> Date.parse(b.created_time) }
-      .each do |record|
+    current_records = @records.select { |r| r.dig(:properties, :Category, :select, :name)&.to_sym == category }
+                              .sort do |a, b|
+      a.created_time && b.created_time &&
+        Date.parse(a.created_time) <=> Date.parse(b.created_time)
+    end
+
+    current_records.each do |record|
       case section
       when :previous
         items.concat(previous_entries(record))
@@ -78,7 +83,8 @@ class DailyStandup
         items.concat(gratitude_entries(record))
       end
     end
-    items.push("* None\n") if items.length == 0
+
+    items.push("* None\n") if items.empty?
     result += items.join('')
     render(result)
   end
@@ -86,31 +92,30 @@ class DailyStandup
   # Previous day's entries
   def previous_entries(record)
     [].tap do |items|
-      date = get_previous_business_day
+      date = previous_business_day
       item_date = record.dig(:properties, :"Item Date", :date, :start)
       if item_date && Date.parse(item_date) == date &&
-        record.dig(:properties, :Completed, :checkbox) == false
-          items.push("* #{get_title_string(record)}\n")
+         record.dig(:properties, :Completed, :checkbox) == false
+        items.push("* #{title_string(record)}\n")
       end
     end
   end
 
+  # Blocker entries
   def blocker_entries(record)
     [].tap do |items|
-      if record.dig(:properties, :Completed, :checkbox) == false
-        items.push("* #{get_title_string(record)}\n")
-      end
+      items.push("* #{title_string(record)}\n") if record.dig(:properties, :Completed, :checkbox) == false
     end
   end
 
   # Today's entries
   def todays_entries(record)
     [].tap do |items|
-      date = get_current_day
+      date = Date.today
       item_date = record.dig(:properties, :"Item Date", :date, :start)
       if item_date && Date.parse(item_date) == date &&
-        record.dig(:properties, :Completed, :checkbox) == false
-          items.push("* #{get_title_string(record)}\n")
+         record.dig(:properties, :Completed, :checkbox) == false
+        items.push("* #{title_string(record)}\n")
       end
     end
   end
@@ -118,56 +123,51 @@ class DailyStandup
   # Gratitude entries
   def gratitude_entries(record)
     [].tap do |items|
-      if record.dig(:properties, :Completed, :checkbox) == false
-        items.push("* #{get_title_string(record)}\n")
-      end
+      items.push("* #{title_string(record)}\n") if record.dig(:properties, :Completed, :checkbox) == false
     end
   end
 
   # Notion stores its titles in an odd way. This ensures they show up decently.
-  def get_title_string(record)
-    record.dig(:properties, :Name, :title).map {|t| t.plain_text }.join('')
-  end
-
-  # Yeah, this is dumb. Done to be consistent with the previous day
-  def get_current_day
-    Date.today
+  def title_string(record)
+    record.dig(:properties, :Name, :title).map(&:plain_text).join('')
   end
 
   # Calculate the previous day, but keep business days in mind.
   # If today is Monday, the previous day will be Friday.
-  def get_previous_business_day
+  def previous_business_day
     date = Date.today
     date -= 1
     # 0 = Sunday, 6 = Saturday
-    while date.wday == 0 || date.wday == 6
-      date -= 1
-    end
+    date -= 1 while date.wday.zero? || date.wday == 6
     date
   end
 
   # Parse the "Song of the Day" database and format the most recent entry.
-  def get_current_song_of_the_day
+  def current_song_of_the_day
     result = "* [#{@sections[:sotd]}](#{ENV['SOTD_PLAYLIST_URL']}): "
     sotd = @sotd_records
-      .sort { |a, b| a.created_time && b.created_time && Date.parse(b.created_time) <=> Date.parse(a.created_time) }
-      .select {|r| r.dig(:properties, :CurrentSong, :formula, :boolean) == true }.first
+           .sort do |a, b|
+             a.created_time && b.created_time &&
+               Date.parse(b.created_time) <=> Date.parse(a.created_time)
+           end
+           .select { |r| r.dig(:properties, :CurrentSong, :formula, :boolean) == true }.first
+
     if sotd
       url = sotd.dig(:properties, :URL, :url)
-      artist = sotd.dig(:properties, :Artist, :rich_text).map {|a| a.plain_text }.join('')
-      title = sotd.dig(:properties, :"Song Title", :title).map {|a| a.plain_text }.join('')
-      notes = sotd.dig(:properties, :Notes, :rich_text).map {|a| a.plain_text }.join('')
+      artist = sotd.dig(:properties, :Artist, :rich_text).map(&:plain_text).join('')
+      title = sotd.dig(:properties, :"Song Title", :title).map(&:plain_text).join('')
+      notes = sotd.dig(:properties, :Notes, :rich_text).map(&:plain_text).join('')
       notes = " - #{notes}" if notes && !notes.strip.empty?
-      result += ":musical_note: [#{artist} - #{title}](#{url}) :musical_note:#{notes}\n";
+      result += ":musical_note: [#{artist} - #{title}](#{url}) :musical_note:#{notes}\n"
     else
-      result += "None\n";
+      result += "None\n"
     end
     result
   end
 
   # This will turn text like PLS-1234 into a linkified version.
   def replace_jira_links(text)
-    text.gsub(/(#{ENV['JIRA_PROJECT_ID']}-[\d]+)/, "[\\1](#{ENV['JIRA_PROJECT_URL']}\\1)")
+    text.gsub(/(#{ENV['JIRA_PROJECT_ID']}-\d+)/, "[\\1](#{ENV['JIRA_PROJECT_URL']}\\1)")
   end
 
   # Render the mustache templates, plus any internal text replacement.
@@ -193,7 +193,8 @@ class DailyStandup
         'You must make your own fortune',
         'Fortune favors the prepared mind. -- Louis Pasteur',
         'Fortune always favors the brave, and never helps a man who does not help himself -- PT Barnum',
-        'Any fool can write code that a computer can understand. Good programmers write code that humans can understand. -- Martin Fowler'
+        'Any fool can write code that a computer can understand. ' \
+          'Good programmers write code that humans can understand. -- Martin Fowler'
       ].sample
     end
   end
@@ -218,10 +219,9 @@ class Mustache
   end
 end
 
-
 standup = DailyStandup.new
-puts standup.get_section_for_categories(:previous, :Normal)
-puts standup.get_section_for_categories(:today, :Normal)
-puts standup.get_section_for_categories(:blockers, :Blocker)
-puts standup.get_section_for_categories(:gratitude, :Gratitude)
-puts standup.get_current_song_of_the_day
+puts standup.section_for_categories(:previous, :Normal)
+puts standup.section_for_categories(:today, :Normal)
+puts standup.section_for_categories(:blockers, :Blocker)
+puts standup.section_for_categories(:gratitude, :Gratitude)
+puts standup.current_song_of_the_day
