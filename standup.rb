@@ -66,10 +66,14 @@ class DailyStandup
     result = "*#{@sections[section]}:*\n"
     items = []
     current_records = @records.select { |r| r.dig(:properties, :Category, :select, :name)&.to_sym == category }
-                              .sort do |a, b|
-      a.created_time && b.created_time &&
+      .sort do |a, b|
+        a.dig(:properties, :"Item Date", :date, :start) && b.dig(:properties, :"Item Date", :date, :start) &&
+        Date.parse(a.dig(:properties, :"Item Date", :date, :start)) <=> Date.parse(b.dig(:properties, :"Item Date", :date, :start))
+      end
+      .sort do |a, b|
+        a.created_time && b.created_time &&
         Date.parse(a.created_time) <=> Date.parse(b.created_time)
-    end
+      end
 
     current_records.each do |record|
       case section
@@ -158,9 +162,9 @@ class DailyStandup
       title = sotd.dig(:properties, :"Song Title", :title).map(&:plain_text).join('')
       notes = sotd.dig(:properties, :Notes, :rich_text).map(&:plain_text).join('')
       notes = " - #{notes}" if notes && !notes.strip.empty?
-      result += ":musical_note: [#{artist} - #{title}](#{url}) :musical_note:#{notes}\n"
+      result += ":musical_note: [#{artist} - #{title}](#{url}) :musical_note:#{notes}"
     else
-      result += "None\n"
+      result += "None"
     end
     result
   end
@@ -180,7 +184,8 @@ class DailyStandup
   def template_variables
     {
       day_of_week: Date.today.strftime('%A'),
-      fortune: random_fortune
+      fortune: random_fortune,
+      sotd: current_song_of_the_day
     }
   end
 
@@ -224,4 +229,3 @@ puts standup.section_for_categories(:previous, :Normal)
 puts standup.section_for_categories(:today, :Normal)
 puts standup.section_for_categories(:blockers, :Blocker)
 puts standup.section_for_categories(:gratitude, :Gratitude)
-puts standup.current_song_of_the_day
