@@ -8,10 +8,11 @@ require 'notion-ruby-client'
 
 # Database assumptions
 # Main standup database parameters:
-#   Item Date (date),
+#   Item Date (formula: formatDate(if(empty(prop("Override Date")), prop("Created Time"), prop("Override Date")), "YYYY/MM/DD")),
 #   Name (title),
 #   Category (select with options: Normal, Gratitude, Blocker)
 #   Completed (checkbox)
+#   Override Date (date)
 #
 # Song of the day database parameters:
 #   Song Title (title)
@@ -67,8 +68,8 @@ class DailyStandup
     items = []
     current_records = @records.select { |r| r.dig(:properties, :Category, :select, :name)&.to_sym == category }
       .sort do |a, b|
-        a.dig(:properties, :"Item Date", :date, :start) && b.dig(:properties, :"Item Date", :date, :start) &&
-        Date.parse(a.dig(:properties, :"Item Date", :date, :start)) <=> Date.parse(b.dig(:properties, :"Item Date", :date, :start))
+        a.dig(:properties, :"Item Date", :formula, :string) && b.dig(:properties, :"Item Date", :formula, :string) &&
+        Date.parse(a.dig(:properties, :"Item Date", :formula, :string)) <=> Date.parse(b.dig(:properties, :"Item Date", :formula, :string))
       end
       .sort do |a, b|
         a.created_time && b.created_time &&
@@ -97,7 +98,7 @@ class DailyStandup
   def previous_entries(record)
     [].tap do |items|
       date = previous_business_day
-      item_date = record.dig(:properties, :"Item Date", :date, :start)
+      item_date = record.dig(:properties, :"Item Date", :formula, :string)
       if item_date && Date.parse(item_date) == date &&
          record.dig(:properties, :Completed, :checkbox) == false
         items.push("* #{title_string(record)}\n")
@@ -116,7 +117,7 @@ class DailyStandup
   def todays_entries(record)
     [].tap do |items|
       date = Date.today
-      item_date = record.dig(:properties, :"Item Date", :date, :start)
+      item_date = record.dig(:properties, :"Item Date", :formula, :string)
       if item_date && Date.parse(item_date) == date &&
          record.dig(:properties, :Completed, :checkbox) == false
         items.push("* #{title_string(record)}\n")
