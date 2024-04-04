@@ -13,6 +13,7 @@ require 'notion-ruby-client'
 #   Category (select with options: Normal, Gratitude, Blocker)
 #   Completed (checkbox)
 #   Override Date (date)
+#   IsPrevious (formula: now().dateSubtract(if(now().dateSubtract(1, "days").day() > 5, 3, 1), "days").formatDate("YYYY/MM/DD") == prop("Item Date"))
 #
 # Song of the day database parameters:
 #   Song Title (title)
