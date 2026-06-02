@@ -3,8 +3,11 @@
 require 'date'
 require 'debug'
 require 'dotenv/load'
+require 'json'
 require 'mustache'
 require 'notion-ruby-client'
+require 'rest-client'
+require 'shellwords'
 
 # Database assumptions
 # Main standup database parameters:
@@ -28,6 +31,7 @@ require 'notion-ruby-client'
 # Templates: You can use mustache templates in your database. Try using these:
 #   {{day_of_week}} - Current day of the week (e.g. "Tuesday")
 #   {{fortune}} - A random fortune from the above application (currently the "wisdom" file)
+#   {{dadjoke}} - Calls the icanhasdadjoke API for a random dad joke
 # See the `template_variables` method for more
 
 # Daily Standup class
@@ -150,7 +154,7 @@ class DailyStandup
 
   # Parse the "Song of the Day" database and format the most recent entry.
   def current_song_of_the_day
-    result = "* [#{@sections[:sotd]}](#{ENV['SOTD_PLAYLIST_URL']}): "
+    result = "[#{@sections[:sotd]}](#{ENV['SOTD_PLAYLIST_URL']}): "
     sotd = @sotd_records
            .sort do |a, b|
              a.created_time && b.created_time &&
@@ -171,14 +175,51 @@ class DailyStandup
     result
   end
 
+  # This method loads a list of open pull requests from Github
+  # using the gh command line, and outputs the formatted list
+  def build_github_pull_request_section
+    config_file = ENV['GITHUB_CONFIG_FILE']
+    return nil unless config_file && File.exist?(config_file)
+
+    config = JSON.parse(File.read(config_file))
+    github_user = config['user']
+
+    items = config['projects'].flat_map do |project|
+      output = `gh pr list --author #{Shellwords.escape(github_user)} -R #{Shellwords.escape(project['project_name'])} --json url,title`
+      JSON.parse(output).map do |pr|
+        "* #{project['display_name']}: [#{pr['title']}](#{pr['url']})\n"
+      end
+    end
+
+    return nil if items.empty?
+
+    "*Open Pull Requests:*\n#{items.join('')}"
+  end
+
   # This will turn text like PLS-1234 into a linkified version.
   def replace_jira_links(text)
-    text.gsub(/(#{ENV['JIRA_PROJECT_ID']}-\d+)/, "[\\1](#{ENV['JIRA_PROJECT_URL']}\\1)")
+    ENV['JIRA_PROJECT_IDS'].split(/,/).each do |project_id|
+      text = text.gsub(/(#{project_id}-\d+)/, "[\\1](#{ENV['JIRA_PROJECT_URL']}\\1)")
+    end
+    return text
+  end
+
+  def replace_ado_links(text)
+    project_ids = ENV['ADO_PROJECT_IDS'].split(/,/)
+    project_urls = ENV['ADO_PROJECT_URLS'].split(/;/)
+    if project_ids.count != project_urls.count
+      raise "ADO project ID names and URL values do not match up."
+    end
+    project_ids.each_with_index do |id, idx|
+      url = project_urls[idx]
+      text = text.gsub(/#{id}[^\d]?(\d+)/, "[#{id} \\1](#{url}?workitem=\\1)")
+    end
+    return text
   end
 
   # Render the mustache templates, plus any internal text replacement.
   def render(text)
-    Mustache.render(replace_jira_links(text), @template)
+    Mustache.render(replace_ado_links(replace_jira_links(text)), @template)
   end
 
   # Here are the defined variables. Inside your notion texts, you can use things like
@@ -187,7 +228,8 @@ class DailyStandup
     {
       day_of_week: Date.today.strftime('%A'),
       fortune: random_fortune,
-      sotd: current_song_of_the_day
+      sotd: current_song_of_the_day,
+      dadjoke: i_can_has_dadjoke
     }
   end
 
@@ -204,6 +246,13 @@ class DailyStandup
           'Good programmers write code that humans can understand. -- Martin Fowler'
       ].sample
     end
+  end
+
+  def i_can_has_dadjoke
+    uri = 'https://icanhasdadjoke.com'
+    response = RestClient.get uri, {accept: :json}
+    raise  Exception.new "Response #{response.code} received from #{uri}" if response.code != 200
+    return JSON.parse(response.body)['joke']
   end
 
   # Utility method to determine if the current user has a command available in the path.
@@ -230,4 +279,5 @@ standup = DailyStandup.new
 puts standup.section_for_categories(:previous, :Normal)
 puts standup.section_for_categories(:today, :Normal)
 puts standup.section_for_categories(:blockers, :Blocker)
+puts standup.build_github_pull_request_section()
 puts standup.section_for_categories(:gratitude, :Gratitude)

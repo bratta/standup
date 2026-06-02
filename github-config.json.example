@@ -1,0 +1,9 @@
+{
+  "user": "github-username",
+  "projects": [
+    {
+      "display_name": "Project Display Name",
+      "project_name": "organization/repositoryName"
+    }
+  ]
+}
